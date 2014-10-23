@@ -63,13 +63,7 @@ class GithubHookHandler(BaseHTTPRequestHandler):
 
 class MyHandler(GithubHookHandler):
     def handle_payload(self, json_payload):
-        bdata = self.rfile.read(int(self.headers['Content-Length']))
-        sdata = bdata.decode("utf-8")
-        jdata = json.loads(sdata)
-
-        # send confirmation
-        self.send_response(200)
-        self.end_headers()
+        jdata = json_payload
 
         pusher = jdata["pusher"]["name"]
         pusher_email = jdata["pusher"]["email"]
