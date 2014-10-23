@@ -75,7 +75,7 @@ class BuildHandler(BaseHTTPRequestHandler):
                                                   git_url,
                                                   urgency],
                                                   stderr=subprocess.STDOUT, 
-                                                  shell=True):
+                                                  shell=True)
                     
                 print(output)
             except subprocess.CalledProcessError:
