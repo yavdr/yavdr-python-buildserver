@@ -24,7 +24,12 @@ debfullname = "Alexander Grothe"
 ppa_owner = "yavdr"
 
 # set up environment variables
-HOOK_SECRET_KEY = os.environb[b'HOOK_SECRET_KEY']
+try:
+    HOOK_SECRET_KEY = os.environb[b'HOOK_SECRET_KEY']
+except:
+    print("warning: HOOK_SECRET_KEY environment variable not set!")
+    print("export your buildhook secret as HOOK_SECRET_KEY")
+    HOOK_SECRET_KEY = None
 os.environ['DEBEMAIL'] = debemail
 os.environ['DEBFULLNAME'] = debfullname
 os.environ['EDITOR'] = 'true'
@@ -40,13 +45,16 @@ class GithubHookHandler(BaseHTTPRequestHandler):
     Subclass it and implement 'handle_payload'.
     """
     def _validate_signature(self, data):
-        sha_name, signature = self.headers['X-Hub-Signature'].split('=')
-        if sha_name != 'sha1':
-            return False
+        if HOOK_SECRET_KEY:
+            sha_name, signature = self.headers['X-Hub-Signature'].split('=')
+            if sha_name != 'sha1':
+                return False
 
-        # HMAC requires its key to be bytes, but data is strings.
-        mac = hmac.new(HOOK_SECRET_KEY, msg=data, digestmod=hashlib.sha1)
-        return hmac.compare_digest(mac.hexdigest(), signature)
+            # HMAC requires its key to be bytes, but data is strings.
+            mac = hmac.new(HOOK_SECRET_KEY, msg=data, digestmod=hashlib.sha1)
+            return hmac.compare_digest(mac.hexdigest(), signature)
+        else:
+            return True
 
     def do_POST(self):
         data_length = int(self.headers['Content-Length'])
