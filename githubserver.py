@@ -1,10 +1,12 @@
 from http.server import BaseHTTPRequestHandler
 from http.server import HTTPServer
 import json
+import subprocess
 
 port = 8080
 real_owner = "flensrocker" # "yavdr"
 real_url = "git://github.com/flensrocker/" # "git://github.com/yavdr/"
+build_script = "build.sh"
 
 class BuildHandler(BaseHTTPRequestHandler):
 
@@ -63,7 +65,24 @@ class BuildHandler(BaseHTTPRequestHandler):
             print("urgency: ", urgency)
 
             # TODO
-            # call build.sh in background
+            # call build.sh - why in background?
+            try:
+                output = subprocess.check_output([build_script,
+                                                  name,
+                                                  branch,
+                                                  dist,
+                                                  stage, 
+                                                  git_url,
+                                                  urgency],
+                                                  stderr=subprocess.STDOUT, 
+                                                  shell=True):
+                    
+                print(output)
+            except subprocess.CalledProcessError:
+                print("calling buildscript failed:")
+                print(output)
+            except Exception as e:
+                print(e)
             # mail output of build.sh to pusher_email
 
         except Exception as ex:
