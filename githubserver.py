@@ -5,10 +5,13 @@ from http.server import BaseHTTPRequestHandler
 from http.server import HTTPServer
 from socketserver import ThreadingMixIn
 import argparse
+import ast
+import configparser
 import hashlib
 import hmac
 import datetime
 import json
+import pprint
 import os
 import shutil
 import subprocess
@@ -16,24 +19,45 @@ import sys
 import tempfile
 #import threading
 
-port = 8080
-real_owner = "seahawk1986"  # "yavdr"
-real_url = "git://github.com/seahawk1986/"  # "git://github.com/yavdr/"
-debemail = "seahawk1986@gmx.de"
-debfullname = "Alexander Grothe"
-ppa_owner = "yavdr"
+config = None
 
-# set up environment variables
-try:
-    HOOK_SECRET_KEY = os.environb[b'HOOK_SECRET_KEY']
-except:
-    print("warning: HOOK_SECRET_KEY environment variable not set!")
-    print("export your buildhook secret as HOOK_SECRET_KEY")
-    HOOK_SECRET_KEY = None
-os.environ['DEBEMAIL'] = debemail
-os.environ['DEBFULLNAME'] = debfullname
-os.environ['EDITOR'] = 'true'
+class Config:
+    def __init__(self):
+        argparser = argparse.ArgumentParser(description='Github hook handler')
+        argparser.add_argument('-c', '--config', action='append', metavar='CONFIG', dest='config', default=None, help='configuration file(s)')
+        args = vars(argparser.parse_args())
+        self.configparser = configparser.SafeConfigParser()
+        self.configparser.read(args["config"])
+        self.get_config()
+        # set up environment variables
+        try:
+            self.HOOK_SECRET_KEY = os.environb[b'HOOK_SECRET_KEY']
+        except:
+            print("warning: HOOK_SECRET_KEY environment variable not set!")
+            print("export your buildhook secret as HOOK_SECRET_KEY")
+            self.HOOK_SECRET_KEY = None
+        os.environ['DEBEMAIL'] = self.debemail
+        os.environ['DEBFULLNAME'] = self.debfullname
+        os.environ['EDITOR'] = 'true'
 
+    def get_setting(self, category, setting, default=None):
+        if self.configparser.has_option(category, setting):
+            return self.configparser.get(category, setting)
+        else:
+            return default
+
+    def get_config(self):
+        self.server_port = int(self.get_setting("Server", "port", "8180"))
+        self.launchpad_owner = self.get_setting("Launchpad", "owner", "yavdr")
+        self.section_mapping = ast.literal_eval(self.get_setting("Launchpad", "section_mapping", {'vdr-': 'vdr', 'yavdr-': 'yavdr'}))
+        self.github_user = self.get_setting("Github", "user", "yavdr")
+        self.github_baseurl = self.get_setting("Github", "baseurl", "git://github.com/yavdr/")
+        self.master_dist = self.get_setting("Mapping", "master_dist", "trusty")
+        self.release_mapping = ast.literal_eval(self.get_setting("Mapping", "release_mapping", {'-0.5': 'precise', '-0.6': 'trusty'}))
+        self.stage_mapping = ast.literal_eval(self.get_setting("Mapping", "stage_mapping", {'master': 'unstable', 'stable-': 'stable', 'testing-' : 'testing'}))
+        self.debfullname = self.get_setting("Debian", "fullname", "yaVDR Release-Team")
+        self.debemail = self.get_setting("Debian", "email", "release@yavdr.org")
+        self.version_suffix = self.get_setting("Debian", "version_suffix", "-0yavdr0~{dist}")
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     """Handle requests in a separate thread."""
@@ -45,13 +69,13 @@ class GithubHookHandler(BaseHTTPRequestHandler):
     Subclass it and implement 'handle_payload'.
     """
     def _validate_signature(self, data):
-        if HOOK_SECRET_KEY:
+        if config.HOOK_SECRET_KEY:
             sha_name, signature = self.headers['X-Hub-Signature'].split('=')
             if sha_name != 'sha1':
                 return False
 
             # HMAC requires its key to be bytes, but data is strings.
-            mac = hmac.new(HOOK_SECRET_KEY, msg=data, digestmod=hashlib.sha1)
+            mac = hmac.new(config.HOOK_SECRET_KEY, msg=data, digestmod=hashlib.sha1)
             return hmac.compare_digest(mac.hexdigest(), signature)
         else:
             return True
@@ -71,43 +95,41 @@ class GithubHookHandler(BaseHTTPRequestHandler):
 
 class MyHandler(GithubHookHandler):
     def handle_payload(self, json_payload):
-        jdata = json_payload
+        pusher = json_payload["pusher"]["name"]
+        pusher_email = json_payload["pusher"]["email"]
+        owner = json_payload["repository"]["owner"]["name"]
+        name = json_payload["repository"]["name"]
+        git_url = json_payload["repository"]["git_url"]
+        branch = json_payload["ref"]
 
-        pusher = jdata["pusher"]["name"]
-        pusher_email = jdata["pusher"]["email"]
-        owner = jdata["repository"]["owner"]["name"]
-        name = jdata["repository"]["name"]
-        git_url = jdata["repository"]["git_url"]
-        branch = jdata["ref"]
-
-        if owner != real_owner:
+        if owner != config.github_user:
             raise Exception("wrong owner")
-        if not git_url.startswith(real_url):
+        if not git_url.startswith(config.github_baseurl):
             raise Exception("wrong repository")
         if not branch.startswith("refs/heads/"):
             raise Exception("unknown branch")
 
         branch = branch[11:]
 
-        stage = "unstable"  # "testing", "stable"
-        if branch.startswith("stable-"):
-            stage = "stable"
-        elif branch.startswith("testing-"):
-            stage = "testing"
+        stage = ""
+        for k, v in config.stage_mapping.items():
+            if branch.startswith(k):
+                stage = v
+        if stage == "":
+            raise Exception("unknown stage")
 
-        section = ""  # "vdr", "yavdr", "main" (not used)
-        if name.startswith("vdr-"):
-            section = "vdr"
-        elif name.startswith("yavdr-"):
-            section = "yavdr"
-        else:
+        dist = config.master_dist
+        for k, v in config.release_mapping.items():
+            if branch.endswith(k):
+                dist = v
+
+        section = ""
+        for k, v in config.section_mapping.items():
+            print("name: ", name, "; key: ", k, "; value: ", v)
+            if name.startswith(k):
+                section = v
+        if section == "":
             raise Exception("unknown section")
-
-        dist = "trusty"
-        if branch.endswith("-0.5"):
-            dist = "precise"
-        elif branch.endswith("-0.6"):
-            dist = "trusty"
 
         urgency = "medium"
 
@@ -122,7 +144,7 @@ class MyHandler(GithubHookHandler):
         print("dist:    ", dist)
         print("urgency: ", urgency)
 
-        version_suffix = "-0yavdr0~{}".format(dist)
+        version_suffix = config.version_suffix.replace("{dist}", dist)
         date = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         print("date:    ", date)
         if section == "main":
@@ -140,7 +162,7 @@ class MyHandler(GithubHookHandler):
             PACKAGE_NAME_VERSION=package_name_version,
             VERSION_SUFFIX=version_suffix)
         ppa = "ppa:{PPA_OWNER}/{LPREPO}".format(
-            PPA_OWNER=ppa_owner, LPREPO=lprepo)
+            PPA_OWNER=config.launchpad_owner, LPREPO=lprepo)
         print("ppa:     ", ppa)
         print("version_suffix:", version_suffix)
 
@@ -213,11 +235,13 @@ class MyHandler(GithubHookHandler):
             shutil.rmtree(tmpdir)
         return
 
-if __name__ == '__main__':
-    argparser = argparse.ArgumentParser(description='Github hook handler')
-    #argparser.add_argument('port', type=int, help='TCP port to listen on')
-    argparser.add_argument('-c', '--config', type=str,
-                           help='configuration file')
-    args = argparser.parse_args()
-    server = ThreadedHTTPServer(('', port), MyHandler)
+def main():
+    global config
+    config = Config()
+    pp = pprint.PrettyPrinter()
+    pp.pprint(vars(config))
+    server = ThreadedHTTPServer(('', config.server_port), MyHandler)
     server.serve_forever()
+
+if __name__ == '__main__':
+    main()
