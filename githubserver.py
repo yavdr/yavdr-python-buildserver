@@ -18,7 +18,7 @@ import signal
 import subprocess
 import sys
 import tempfile
-#import threading
+import threading
 
 config = None
 server = None
@@ -83,6 +83,182 @@ class Config:
         self.sections = self.get_section("Sections", {'vdr-': 'vdr', 'vdr-addon-': 'main', 'yavdr-': 'yavdr'})
 
 
+class Build(threading.Thread):
+    def __init__(self, config):
+        threading.Thread.__init__(self)
+        self.config = config
+        self.pusher = ""
+        self.pusher_email = ""
+        self.owner = ""
+        self.name = ""
+        self.git_url = ""
+        self.branch = ""
+        self.stage = ""
+        self.release = ""
+        self.section = ""
+        self.urgency = ""
+        return
+
+    def run(self):
+        self.build()
+        return
+
+    def output(self):
+        print("repo:    ", self.name)
+        print("branch:  ", self.branch)
+        print("owner:   ", self.owner)
+        print("pusher:  ", self.pusher)
+        print("pusher-m:", self.pusher_email)
+        print("git_url: ", self.git_url)
+        print("stage:   ", self.stage)
+        print("section: ", self.section)
+        print("release: ", self.release)
+        print("urgency: ", self.urgency)
+        return
+
+    def loadjson(self, json_payload):
+        self.pusher = json_payload["pusher"]["name"]
+        self.pusher_email = json_payload["pusher"]["email"]
+        self.owner = json_payload["repository"]["owner"]["name"]
+        self.name = json_payload["repository"]["name"]
+        self.git_url = json_payload["repository"]["git_url"]
+        branch = json_payload["ref"]
+
+        if self.owner != self.config.github_owner:
+            raise Exception("wrong owner")
+        if not self.git_url.startswith(self.config.github_baseurl):
+            raise Exception("wrong repository")
+        if not branch.startswith("refs/heads/"):
+            raise Exception("unknown branch")
+
+        self.branch = branch[11:]
+
+        self.stage = self.config.default_stage
+        matches = [sta for sta in self.config.stages.keys() if self.branch.startswith(sta)]
+        if len(matches) > 0:
+            max_length, longest_element = max([(len(x),x) for x in matches])
+            self.stage = self.config.stages[longest_element]
+
+        self.release = self.config.default_release
+        matches = [rel for rel in self.config.releases.keys() if self.branch.endswith(rel)]
+        if len(matches) > 0:
+            max_length, longest_element = max([(len(x),x) for x in matches])
+            self.release = self.config.releases[longest_element]
+
+        matches = [sec for sec in self.config.sections.keys() if self.name.startswith(sec)]
+        if len(matches) == 0:
+            raise Exception("unknown section")
+        max_length, longest_element = max([(len(x),x) for x in matches])
+        self.section = self.config.sections[longest_element]
+
+        self.urgency = "medium"
+        return
+
+    def build(self):
+        logfile = None
+        errorfile = None
+
+        version_suffix = config.version_suffix.replace("{release}", self.release)
+        date = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        print("date: ", date)
+        if self.section == "main" and self.section != "unstable":
+            lprepo = "main"
+        else:
+            lprepo = "{STAGE}-{SECTION}".format(STAGE=self.stage, SECTION=self.section)
+        print("lprepo: ", lprepo)
+
+        package_version = "{DATE}{STAGE}".format(DATE=date, STAGE=self.stage)
+        package_name_version = "{PACKAGE_NAME}_{PACKAGE_VERSION}".format(
+            PACKAGE_NAME=self.name, PACKAGE_VERSION=package_version)
+        orig_file = "{PACKAGE_NAME_VERSION}.orig.tar.gz".format(
+            PACKAGE_NAME_VERSION=package_name_version)
+        changes_file = "{PACKAGE_NAME_VERSION}{VERSION_SUFFIX}_source.changes".format(
+            PACKAGE_NAME_VERSION=package_name_version,
+            VERSION_SUFFIX=version_suffix)
+        ppa = "ppa:{PPA_OWNER}/{LPREPO}".format(
+            PPA_OWNER=config.launchpad_owner, LPREPO=lprepo)
+        print("ppa: ", ppa)
+        print("version_suffix:", version_suffix)
+
+        try:
+            # create a temporary directory and enter it
+            tmpdir = tempfile.mkdtemp(suffix=self.name)
+            os.chdir(tmpdir)
+
+            # log the output to files
+            logfile = open('build.log', 'w+b')
+            errorfile = open('error.log', 'w+b')
+
+            print("checkout sourcecode")
+            subprocess.check_call(["git", "clone", "-b", self.branch, self.git_url,
+                                   package_name_version],
+                                   stdout=logfile, stderr=errorfile)
+            os.chdir(os.path.join(tmpdir, package_name_version))
+            print("get commit_id")
+            commit_id = subprocess.check_output(["git", "rev-parse", "HEAD"])
+            print("rm .git")
+            shutil.rmtree(".git")
+            os.chdir(tmpdir)
+            print("package orig.tar.gz")
+            subprocess.check_call(["tar", "czf", orig_file,
+                                   package_name_version, '--exclude="debian"'])
+            os.chdir(os.path.join(tmpdir, package_name_version))
+            print("remove old changelog")
+            os.remove("debian/changelog")
+            print("call dch")
+            subprocess.check_call(
+                ["dch", "-v",
+                 "{0}{1}".format(package_version, version_suffix),
+                 "Autobuild - {}".format(commit_id),
+                 self.git_url,
+                 "--create",
+                 "--distribution={}".format(self.release),
+                 "-u", self.urgency,
+                 "--package", self.name
+                 ],
+                env=os.environ,
+                stdout=logfile, stderr=errorfile)
+            print("call debuild")
+            gpgkey = ""
+            if self.config.gpgkey:
+                gpgkey = "-k{}".format(self.config.gpgkey)
+            subprocess.check_call(
+                "debuild -S -sa {}".format(gpgkey),
+                env=os.environ, shell=True,
+                stdout=logfile, stderr=errorfile)
+            os.chdir(tmpdir)
+            print("upload package")
+            if self.config.dryrun:
+                print("skipped (dry run)")
+            else:
+                subprocess.check_call(
+                    ["dput", ppa, changes_file],
+                    stdout=logfile, stderr=errorfile)
+
+        except Exception as e:
+            #logging.exception(e)
+            # add exception to errorfile?
+            print(e)
+            print(sys.exc_info()[0])
+
+        finally:
+            print("OUTPUT:")
+            # TODO
+            # mail output to build.pusher_email
+            if errorfile:
+                errorfile.seek(0)
+                print(errorfile.read().decode())
+                errorfile.close()
+            if logfile:
+                logfile.seek(0)
+                print(logfile.read().decode())
+                logfile.close()
+
+            # cleanup
+            shutil.rmtree(tmpdir)
+        return
+
+
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     """Handle requests in a separate thread."""
 
@@ -116,173 +292,17 @@ class GithubHookHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
         self.flush_headers()
-        # then handle request, so that no timeout occurs
+        # then handle request, so that no timeout occurs (hopefully)
         payload = json.loads(post_data.decode('utf-8'))
         self.handle_payload(payload)
 
 
-class Build:
-    def __init__(self):
-        self.pusher = ""
-        self.pusher_email = ""
-        self.owner = ""
-        self.name = ""
-        self.git_url = ""
-        self.branch = ""
-        self.stage = ""
-        self.release = ""
-        self.section = ""
-        self.urgency = ""
-
-
 class MyHandler(GithubHookHandler):
     def handle_payload(self, json_payload):
-        build = Build()
-        build.pusher = json_payload["pusher"]["name"]
-        build.pusher_email = json_payload["pusher"]["email"]
-        build.owner = json_payload["repository"]["owner"]["name"]
-        build.name = json_payload["repository"]["name"]
-        build.git_url = json_payload["repository"]["git_url"]
-        branch = json_payload["ref"]
-
-        if build.owner != config.github_owner:
-            raise Exception("wrong owner")
-        if not build.git_url.startswith(config.github_baseurl):
-            raise Exception("wrong repository")
-        if not branch.startswith("refs/heads/"):
-            raise Exception("unknown branch")
-
-        build.branch = branch[11:]
-
-        build.stage = config.default_stage
-        matches = [sta for sta in config.stages.keys() if build.branch.startswith(sta)]
-        if len(matches) > 0:
-            max_length, longest_element = max([(len(x),x) for x in matches])
-            build.stage = config.stages[longest_element]
-
-        build.release = config.default_release
-        matches = [rel for rel in config.releases.keys() if build.branch.endswith(rel)]
-        if len(matches) > 0:
-            max_length, longest_element = max([(len(x),x) for x in matches])
-            build.release = config.releases[longest_element]
-
-        matches = [sec for sec in config.sections.keys() if build.name.startswith(sec)]
-        if len(matches) == 0:
-            raise Exception("unknown section")
-        max_length, longest_element = max([(len(x),x) for x in matches])
-        build.section = config.sections[longest_element]
-
-        build.urgency = "medium"
-
-        print("repo:    ", build.name)
-        print("branch:  ", build.branch)
-        print("owner:   ", build.owner)
-        print("pusher:  ", build.pusher)
-        print("pusher-m:", build.pusher_email)
-        print("git_url: ", build.git_url)
-        print("stage:   ", build.stage)
-        print("section: ", build.section)
-        print("release: ", build.release)
-        print("urgency: ", build.urgency)
-
-        version_suffix = config.version_suffix.replace("{release}", build.release)
-        date = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        print("date:    ", date)
-        if build.section == "main" and build.section != "unstable":
-            lprepo = "main"
-        else:
-            lprepo = "{STAGE}-{SECTION}".format(STAGE=build.stage, SECTION=build.section)
-        print("lprepo:  ", lprepo)
-
-        package_version = "{DATE}{STAGE}".format(DATE=date, STAGE=build.stage)
-        package_name_version = "{PACKAGE_NAME}_{PACKAGE_VERSION}".format(
-            PACKAGE_NAME=build.name, PACKAGE_VERSION=package_version)
-        orig_file = "{PACKAGE_NAME_VERSION}.orig.tar.gz".format(
-            PACKAGE_NAME_VERSION=package_name_version)
-        changes_file = "{PACKAGE_NAME_VERSION}{VERSION_SUFFIX}_source.changes".format(
-            PACKAGE_NAME_VERSION=package_name_version,
-            VERSION_SUFFIX=version_suffix)
-        ppa = "ppa:{PPA_OWNER}/{LPREPO}".format(
-            PPA_OWNER=config.launchpad_owner, LPREPO=lprepo)
-        print("ppa:     ", ppa)
-        print("version_suffix:", version_suffix)
-
-        try:
-            # create a temporary directory and enter it
-            tmpdir = tempfile.mkdtemp(suffix=build.name)
-            os.chdir(tmpdir)
-
-            # log the output to files
-            logfile = open('build.log', 'w+b')
-            errorfile = open('error.log', 'w+b')
-
-            print("checkout sourcecode")
-            subprocess.check_call(["git", "clone", "-b", build.branch, build.git_url,
-                                   package_name_version],
-                                  stdout=logfile, stderr=errorfile)
-            os.chdir(os.path.join(tmpdir, package_name_version))
-            print("get commit_id")
-            commit_id = subprocess.check_output(["git", "rev-parse", "HEAD"])
-            print("rm .git")
-            shutil.rmtree(".git")
-            os.chdir(tmpdir)
-            print("package orig.tar.gz")
-            subprocess.check_call(["tar", "czf", orig_file,
-                                   package_name_version, '--exclude="debian"'])
-            os.chdir(os.path.join(tmpdir, package_name_version))
-            print("remove old changelog")
-            os.remove("debian/changelog")
-            print("call dch")
-            subprocess.check_call(
-                ["dch", "-v",
-                 "{0}{1}".format(package_version, version_suffix),
-                 "Autobuild - {}".format(commit_id),
-                 build.git_url,
-                 "--create",
-                 "--distribution={}".format(build.release),
-                 "-u", build.urgency,
-                 "--package", build.name
-                 ],
-                env=os.environ,
-                stdout=logfile, stderr=errorfile)
-            print("call debuild")
-            gpgkey = ""
-            if config.gpgkey:
-                gpgkey = "-k{}".format(config.gpgkey)
-            subprocess.check_call(
-                "debuild -S -sa {}".format(gpgkey),
-                env=os.environ, shell=True,
-                stdout=logfile, stderr=errorfile)
-            os.chdir(tmpdir)
-            print("upload package")
-            if config.dryrun:
-                print("skipped (dry run)")
-            else:
-                subprocess.check_call(
-                    ["dput", ppa, changes_file],
-                    stdout=logfile, stderr=errorfile)
-
-        except Exception as e:
-            #logging.exception(e)
-            # add exception to errorfile?
-            print(e)
-            print(sys.exc_info()[0])
-
-        finally:
-            print("OUTPUT:")
-            # TODO
-            # mail output of build.sh to build.pusher_email
-            if logfile:
-                logfile.seek(0)
-                print(logfile.read().decode())
-                logfile.close()
-            if errorfile:
-                errorfile.seek(0)
-                print(errorfile.read().decode())
-                errorfile.close()
-
-            # cleanup
-            shutil.rmtree(tmpdir)
+        build = Build(config)
+        build.loadjson(json_payload)
+        build.output()
+        build.start() # runs build.build() in separate thread
         return
 
 
