@@ -96,7 +96,7 @@ class Build(threading.Thread):
         self.stage = ""
         self.release = ""
         self.section = ""
-        self.urgency = ""
+        self.urgency = "medium"
         return
 
     def run(self):
@@ -116,70 +116,22 @@ class Build(threading.Thread):
         print("urgency: ", self.urgency)
         return
 
-    def loadjson(self, json_payload):
+    def fromgithub(self, json_payload):
         self.pusher = json_payload["pusher"]["name"]
         self.pusher_email = json_payload["pusher"]["email"]
         self.owner = json_payload["repository"]["owner"]["name"]
         self.name = json_payload["repository"]["name"]
         self.git_url = json_payload["repository"]["git_url"]
-        branch = json_payload["ref"]
 
-        if self.owner != self.config.github_owner:
-            raise Exception("wrong owner")
-        if not self.git_url.startswith(self.config.github_baseurl):
-            raise Exception("wrong repository")
+        branch = json_payload["ref"]
         if not branch.startswith("refs/heads/"):
             raise Exception("unknown branch")
-
         self.branch = branch[11:]
-
-        self.stage = self.config.default_stage
-        matches = [sta for sta in self.config.stages.keys() if self.branch.startswith(sta)]
-        if len(matches) > 0:
-            max_length, longest_element = max([(len(x),x) for x in matches])
-            self.stage = self.config.stages[longest_element]
-
-        self.release = self.config.default_release
-        matches = [rel for rel in self.config.releases.keys() if self.branch.endswith(rel)]
-        if len(matches) > 0:
-            max_length, longest_element = max([(len(x),x) for x in matches])
-            self.release = self.config.releases[longest_element]
-
-        matches = [sec for sec in self.config.sections.keys() if self.name.startswith(sec)]
-        if len(matches) == 0:
-            raise Exception("unknown section")
-        max_length, longest_element = max([(len(x),x) for x in matches])
-        self.section = self.config.sections[longest_element]
-
-        self.urgency = "medium"
         return
 
     def build(self):
         logfile = None
         errorfile = None
-
-        version_suffix = config.version_suffix.replace("{release}", self.release)
-        date = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        print("date: ", date)
-        if self.section == "main" and self.section != "unstable":
-            lprepo = "main"
-        else:
-            lprepo = "{STAGE}-{SECTION}".format(STAGE=self.stage, SECTION=self.section)
-        print("lprepo: ", lprepo)
-
-        package_version = "{DATE}{STAGE}".format(DATE=date, STAGE=self.stage)
-        package_name_version = "{PACKAGE_NAME}_{PACKAGE_VERSION}".format(
-            PACKAGE_NAME=self.name, PACKAGE_VERSION=package_version)
-        orig_file = "{PACKAGE_NAME_VERSION}.orig.tar.gz".format(
-            PACKAGE_NAME_VERSION=package_name_version)
-        changes_file = "{PACKAGE_NAME_VERSION}{VERSION_SUFFIX}_source.changes".format(
-            PACKAGE_NAME_VERSION=package_name_version,
-            VERSION_SUFFIX=version_suffix)
-        ppa = "ppa:{PPA_OWNER}/{LPREPO}".format(
-            PPA_OWNER=config.launchpad_owner, LPREPO=lprepo)
-        print("ppa: ", ppa)
-        print("version_suffix:", version_suffix)
-
         try:
             # create a temporary directory and enter it
             tmpdir = tempfile.mkdtemp(suffix=self.name)
@@ -188,6 +140,51 @@ class Build(threading.Thread):
             # log the output to files
             logfile = open('build.log', 'w+b')
             errorfile = open('error.log', 'w+b')
+
+            if self.owner != self.config.github_owner:
+                raise Exception("wrong owner")
+            if not self.git_url.startswith(self.config.github_baseurl):
+                raise Exception("wrong repository")
+
+            self.stage = self.config.default_stage
+            matches = [sta for sta in self.config.stages.keys() if self.branch.startswith(sta)]
+            if len(matches) > 0:
+                max_length, longest_element = max([(len(x),x) for x in matches])
+                self.stage = self.config.stages[longest_element]
+
+            self.release = self.config.default_release
+            matches = [rel for rel in self.config.releases.keys() if self.branch.endswith(rel)]
+            if len(matches) > 0:
+                max_length, longest_element = max([(len(x),x) for x in matches])
+                self.release = self.config.releases[longest_element]
+
+            matches = [sec for sec in self.config.sections.keys() if self.name.startswith(sec)]
+            if len(matches) == 0:
+                raise Exception("unknown section")
+            max_length, longest_element = max([(len(x),x) for x in matches])
+            self.section = self.config.sections[longest_element]
+
+            version_suffix = config.version_suffix.replace("{release}", self.release)
+            date = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+            print("date: ", date)
+            if self.section == "main" and self.section != "unstable":
+                lprepo = "main"
+            else:
+                lprepo = "{STAGE}-{SECTION}".format(STAGE=self.stage, SECTION=self.section)
+            print("lprepo: ", lprepo)
+
+            package_version = "{DATE}{STAGE}".format(DATE=date, STAGE=self.stage)
+            package_name_version = "{PACKAGE_NAME}_{PACKAGE_VERSION}".format(
+                PACKAGE_NAME=self.name, PACKAGE_VERSION=package_version)
+            orig_file = "{PACKAGE_NAME_VERSION}.orig.tar.gz".format(
+                PACKAGE_NAME_VERSION=package_name_version)
+            changes_file = "{PACKAGE_NAME_VERSION}{VERSION_SUFFIX}_source.changes".format(
+                PACKAGE_NAME_VERSION=package_name_version,
+                VERSION_SUFFIX=version_suffix)
+            ppa = "ppa:{PPA_OWNER}/{LPREPO}".format(
+                PPA_OWNER=config.launchpad_owner, LPREPO=lprepo)
+            print("ppa: ", ppa)
+            print("version_suffix:", version_suffix)
 
             print("checkout sourcecode")
             subprocess.check_call(["git", "clone", "-b", self.branch, self.git_url,
@@ -237,14 +234,16 @@ class Build(threading.Thread):
 
         except Exception as e:
             #logging.exception(e)
-            # add exception to errorfile?
+            if errorfile:
+                errorfile.write(e)
             print(e)
             print(sys.exc_info()[0])
 
         finally:
             print("OUTPUT:")
             # TODO
-            # mail output to build.pusher_email
+            # mail output to self.pusher_email
+            # https://docs.python.org/3/library/email-examples.html
             if errorfile:
                 errorfile.seek(0)
                 print(errorfile.read().decode())
@@ -299,10 +298,13 @@ class GithubHookHandler(BaseHTTPRequestHandler):
 
 class MyHandler(GithubHookHandler):
     def handle_payload(self, json_payload):
-        build = Build(config)
-        build.loadjson(json_payload)
-        build.output()
-        build.start() # runs build.build() in separate thread
+        try:
+            build = Build(config)
+            build.fromgithub(json_payload)
+            build.output()
+            build.start() # runs build.build() in separate thread
+        except:
+            pass
         return
 
 
