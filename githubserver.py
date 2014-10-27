@@ -24,13 +24,31 @@ config = None
 server = None
 
 
+def get_from_args(args, key, default = None):
+    if key in args:
+        return args[key]
+    if default:
+        return default
+    raise Exception("missing argument {}".format(key))
+
+
 class Config:
     def __init__(self):
         argparser = argparse.ArgumentParser(description='Github hook handler')
         argparser.add_argument('-c', '--config', action='append', metavar='CONFIG', dest='config', default=None, help='configuration file(s)')
-        args = vars(argparser.parse_args())
+        argparser.add_argument('-b', '--build', action='store_true', dest='build', default=None, help='direct build, don\'t serve')
+        argparser.add_argument('--pusher', metavar='PUSHER', dest='pusher', default=None, help='name of the commit pusher')
+        argparser.add_argument('--pusher-email', metavar='PUSHEREMAIL', dest='pusher-email', default=None, help='email address of the commit pusher')
+        argparser.add_argument('--owner', metavar='OWNER', dest='owner', default=None, help='owner of the git repository')
+        argparser.add_argument('--name', metavar='NAME', dest='name', default=None, help='name of the package/repository')
+        argparser.add_argument('--git-url', metavar='GITURL', dest='git-url', default=None, help='clone-url of the git repository')
+        argparser.add_argument('--branch', metavar='BRANCH', dest='branch', default=None, help='name of the branch to clone')
+        argparser.add_argument('--urgency', metavar='URGENCY', dest='urgency', default="medium", help='urgency of the build')
+        self.args = vars(argparser.parse_args())
+        pprint.PrettyPrinter().pprint(self.args)
         self.configparser = configparser.SafeConfigParser()
-        self.configparser.read(args["config"])
+        if "config" in self.args:
+            self.configparser.read(self.args["config"])
         self.get_config()
         # set up environment variables
         try:
@@ -62,6 +80,7 @@ class Config:
             return default
 
     def get_config(self):
+        self.direct_build = True if "build" in self.args else False
         self.dryrun = self.get_settingb("Server", "dryrun", False)
         self.server_port = int(self.get_setting("Server", "port", "8180"))
         
@@ -129,12 +148,23 @@ class Build(threading.Thread):
         self.branch = branch[11:]
         return
 
+    def fromargs(self, args):
+        self.pusher = get_from_args(args, "pusher")
+        self.pusher_email = get_from_args(args, "pusher-email")
+        self.owner = get_from_args(args, "owner", "yavdr")
+        self.name = get_from_args(args, "name")
+        self.git_url = get_from_args(args, "git-url")
+        self.branch = get_from_args(args, "branch", "master")
+        self.urgency = get_from_args(args, "urgency", "medium")
+        return
+
     def build(self):
         logfile = None
         errorfile = None
         try:
             # create a temporary directory and enter it
             tmpdir = tempfile.mkdtemp(suffix=self.name)
+            print("build directory: ", tmpdir)
             os.chdir(tmpdir)
 
             # log the output to files
@@ -163,6 +193,8 @@ class Build(threading.Thread):
                 raise Exception("unknown section")
             max_length, longest_element = max([(len(x),x) for x in matches])
             self.section = self.config.sections[longest_element]
+
+            self.output()
 
             version_suffix = config.version_suffix.replace("{release}", self.release)
             date = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
@@ -193,12 +225,11 @@ class Build(threading.Thread):
             os.chdir(os.path.join(tmpdir, package_name_version))
             print("get commit_id")
             commit_id = subprocess.check_output(["git", "rev-parse", "HEAD"])
-            print("rm .git")
-            shutil.rmtree(".git")
+            print("commit_id: ", commit_id)
             os.chdir(tmpdir)
             print("package orig.tar.gz")
             subprocess.check_call(["tar", "czf", orig_file,
-                                   package_name_version, '--exclude="debian"'])
+                                   package_name_version, '--exclude="debian"', '--exclude=".git"'])
             os.chdir(os.path.join(tmpdir, package_name_version))
             print("remove old changelog")
             os.remove("debian/changelog")
@@ -229,13 +260,12 @@ class Build(threading.Thread):
                 print("skipped (dry run)")
             else:
                 subprocess.check_call(
-                    ["dput", ppa, changes_file],
+                    ["dput", "-U", ppa, changes_file],
                     stdout=logfile, stderr=errorfile)
 
         except Exception as e:
             #logging.exception(e)
-            if errorfile:
-                errorfile.write(e)
+            # write exception to errorfile?
             print(e)
             print(sys.exc_info()[0])
 
@@ -254,7 +284,10 @@ class Build(threading.Thread):
                 logfile.close()
 
             # cleanup
-            shutil.rmtree(tmpdir)
+            if self.config.dryrun:
+                print("dry run, cleanup after yourself")
+            else:
+                shutil.rmtree(tmpdir)
         return
 
 
@@ -301,7 +334,6 @@ class MyHandler(GithubHookHandler):
         try:
             build = Build(config)
             build.fromgithub(json_payload)
-            build.output()
             build.start() # runs build.build() in separate thread
         except:
             pass
@@ -320,8 +352,13 @@ def main():
     config = Config()
     pp = pprint.PrettyPrinter()
     pp.pprint(vars(config))
-    server = ThreadedHTTPServer(('', config.server_port), MyHandler)
-    server.serve_forever()
+    if config.direct_build:
+        build = Build(config)
+        build.fromargs(config.args)
+        build.build()
+    else:
+        server = ThreadedHTTPServer(('', config.server_port), MyHandler)
+        server.serve_forever()
 
 
 if __name__ == '__main__':
