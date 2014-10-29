@@ -12,7 +12,6 @@ import hashlib
 import hmac
 import datetime
 import json
-import pprint
 import os
 import shutil
 import signal
@@ -47,7 +46,6 @@ class Config:
         argparser.add_argument('--branch', metavar='BRANCH', dest='branch', default=None, help='name of the branch to clone')
         argparser.add_argument('--urgency', metavar='URGENCY', dest='urgency', default="medium", help='urgency of the build')
         self.args = vars(argparser.parse_args())
-        pprint.PrettyPrinter().pprint(self.args)
         self.configparser = configparser.SafeConfigParser()
         if "config" in self.args:
             self.configparser.read(self.args["config"])
@@ -362,8 +360,6 @@ def main():
     global config
     global server
     config = Config()
-    pp = pprint.PrettyPrinter()
-    pp.pprint(vars(config))
     if config.direct_build:
         build = Build(config)
         build.fromargs(config.args)
@@ -374,6 +370,6 @@ def main():
 
 
 if __name__ == '__main__':
-    print("GitHub-Launchpad-BuildServer started with PID ", os.getpid())
+    print("GitHub-to-Launchpad-BuildServer started with PID ", os.getpid())
     signal.signal(signal.SIGTERM, sighandler)
     main()
