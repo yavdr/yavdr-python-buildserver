@@ -1,3 +1,9 @@
+gh2lp (0.1.2-0yavdr0~trusty) trusty; urgency=medium
+
+  * update README
+
+ -- Lars Hanisch <dvb@flensrocker.de>  Wed, 29 Oct 2014 23:28:25 +0100
+
 gh2lp (0.1.1-0yavdr0~trusty) trusty; urgency=medium
 
   * add README with installation instructions
