@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from email.mime.text import MIMEText
 from http.server import BaseHTTPRequestHandler
 from http.server import HTTPServer
 from socketserver import ThreadingMixIn
@@ -15,6 +16,7 @@ import pprint
 import os
 import shutil
 import signal
+import smtplib
 import subprocess
 import sys
 import tempfile
@@ -80,9 +82,13 @@ class Config:
             return default
 
     def get_config(self):
-        self.direct_build = True if "build" in self.args else False
+        self.direct_build = self.args["build"]
         self.dryrun = self.get_settingb("Server", "dryrun", False)
         self.server_port = int(self.get_setting("Server", "port", "8180"))
+        self.smtp_server = self.get_setting("Server", "smtp_server", None)
+        self.smtp_sender = self.get_setting("Server", "smtp_sender", None)
+        if not self.smtp_sender:
+            self.smtp_server = None
         
         self.launchpad_owner = self.get_setting("Launchpad", "owner", "yavdr")
         
@@ -122,17 +128,16 @@ class Build(threading.Thread):
         self.build()
         return
 
-    def output(self):
-        print("repo:    ", self.name)
-        print("branch:  ", self.branch)
-        print("owner:   ", self.owner)
-        print("pusher:  ", self.pusher)
-        print("pusher-m:", self.pusher_email)
-        print("git_url: ", self.git_url)
-        print("stage:   ", self.stage)
-        print("section: ", self.section)
-        print("release: ", self.release)
-        print("urgency: ", self.urgency)
+    def output(self, logfile):
+        logfile.write("repo:    {}\n".format(self.name).encode())
+        logfile.write("branch:  {}\n".format(self.branch).encode())
+        logfile.write("owner:   {}\n".format(self.owner).encode())
+        logfile.write("pusher:  {0} <{1}>\n".format(self.pusher, self.pusher_email).encode())
+        logfile.write("git_url: {}\n".format(self.git_url).encode())
+        logfile.write("stage:   {}\n".format(self.stage).encode())
+        logfile.write("section: {}\n".format(self.section).encode())
+        logfile.write("release: {}\n".format(self.release).encode())
+        logfile.write("urgency: {}\n".format(self.urgency).encode())
         return
 
     def fromgithub(self, json_payload):
@@ -160,7 +165,7 @@ class Build(threading.Thread):
 
     def build(self):
         logfile = None
-        errorfile = None
+        package_name_version = None
         try:
             # create a temporary directory and enter it
             tmpdir = tempfile.mkdtemp(suffix=self.name)
@@ -169,7 +174,6 @@ class Build(threading.Thread):
 
             # log the output to files
             logfile = open('build.log', 'w+b')
-            errorfile = open('error.log', 'w+b')
 
             if self.owner != self.config.github_owner:
                 raise Exception("wrong owner")
@@ -194,16 +198,16 @@ class Build(threading.Thread):
             max_length, longest_element = max([(len(x),x) for x in matches])
             self.section = self.config.sections[longest_element]
 
-            self.output()
+            self.output(logfile)
 
             version_suffix = config.version_suffix.replace("{release}", self.release)
             date = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-            print("date: ", date)
+            logfile.write("date:    {}\n".format(date).encode())
             if self.section == "main" and self.section != "unstable":
                 lprepo = "main"
             else:
                 lprepo = "{STAGE}-{SECTION}".format(STAGE=self.stage, SECTION=self.section)
-            print("lprepo: ", lprepo)
+            logfile.write("lprepo:  {}\n".format(lprepo).encode())
 
             package_version = "{DATE}{STAGE}".format(DATE=date, STAGE=self.stage)
             package_name_version = "{PACKAGE_NAME}_{PACKAGE_VERSION}".format(
@@ -215,25 +219,29 @@ class Build(threading.Thread):
                 VERSION_SUFFIX=version_suffix)
             ppa = "ppa:{PPA_OWNER}/{LPREPO}".format(
                 PPA_OWNER=config.launchpad_owner, LPREPO=lprepo)
-            print("ppa: ", ppa)
-            print("version_suffix:", version_suffix)
+            logfile.write("ppa:     {}\n".format(ppa).encode())
+            logfile.write("version_suffix: {}\n".format(version_suffix).encode())
 
-            print("checkout sourcecode")
+            logfile.write("\ncheckout sourcecode\n".encode())
+            logfile.flush()
             subprocess.check_call(["git", "clone", "--depth", "1", "-b", self.branch, self.git_url,
                                    package_name_version],
-                                   stdout=logfile, stderr=errorfile)
+                                   stdout=logfile, stderr=subprocess.STDOUT)
             os.chdir(os.path.join(tmpdir, package_name_version))
-            print("get commit_id")
+            logfile.write("get commit_id\n".encode())
+            logfile.flush()
             commit_id = subprocess.check_output(["git", "rev-parse", "HEAD"])
-            print("commit_id: ", commit_id)
+            logfile.write("commit_id: {}\n".format(commit_id).encode())
             os.chdir(tmpdir)
-            print("package orig.tar.gz")
+            logfile.write("\npackage orig.tar.gz\n".encode())
+            logfile.flush()
             subprocess.check_call(["tar", "czf", orig_file,
                                    package_name_version, '--exclude="debian"', '--exclude=".git"'])
             os.chdir(os.path.join(tmpdir, package_name_version))
-            print("remove old changelog")
+            logfile.write("\nremove old changelog\n".encode())
             os.remove("debian/changelog")
-            print("call dch")
+            logfile.write("\ncall dch\n".encode())
+            logfile.flush()
             subprocess.check_call(
                 ["dch", "-v",
                  "{0}{1}".format(package_version, version_suffix),
@@ -245,43 +253,47 @@ class Build(threading.Thread):
                  "--package", self.name
                  ],
                 env=os.environ,
-                stdout=logfile, stderr=errorfile)
-            print("call debuild")
+                stdout=logfile, stderr=subprocess.STDOUT)
+            logfile.write("\ncall debuild\n".encode())
+            logfile.flush()
             gpgkey = ""
             if self.config.gpgkey:
                 gpgkey = "-k{}".format(self.config.gpgkey)
             subprocess.check_call(
                 "debuild -S -sa {}".format(gpgkey),
                 env=os.environ, shell=True,
-                stdout=logfile, stderr=errorfile)
+                stdout=logfile, stderr=subprocess.STDOUT)
             os.chdir(tmpdir)
-            print("upload package")
+            logfile.write("\nupload package\n".encode())
             if self.config.dryrun:
-                print("skipped (dry run)")
+                logfile.write("skipped (dry run)\n".encode())
             else:
+                logfile.flush()
                 subprocess.check_call(
                     ["dput", "-U", ppa, changes_file],
-                    stdout=logfile, stderr=errorfile)
+                    stdout=logfile, stderr=subprocess.STDOUT)
 
         except Exception as e:
-            #logging.exception(e)
-            # write exception to errorfile?
+            if logfile:
+                logfile.write("{}\n".format(e).encode())
+                logfile.write("{}\n".format(sys.exc_info()[0]).encode())
             print(e)
             print(sys.exc_info()[0])
 
         finally:
-            print("OUTPUT:")
-            # TODO
-            # mail output to self.pusher_email
-            # https://docs.python.org/3/library/email-examples.html
-            if errorfile:
-                errorfile.seek(0)
-                print(errorfile.read().decode())
-                errorfile.close()
-            if logfile:
+            if self.config.smtp_server and self.pusher_email and logfile:
                 logfile.seek(0)
-                print(logfile.read().decode())
+                msg = MIMEText(logfile.read().decode())
                 logfile.close()
+                if package_name_version:
+                    msg['Subject'] = "Build-Log for {NAME}".format(NAME=package_name_version)
+                else:
+                    msg['Subject'] = "an unexpected error occured while building"
+                msg['From'] = self.config.smtp_sender
+                msg['To'] = self.pusher_email
+                s = smtplib.SMTP(self.config.smtp_server)
+                s.send_message(msg)
+                s.quit()
 
             # cleanup
             if self.config.dryrun:
