@@ -16,6 +16,10 @@ case "$1" in
       chmod -R 600 /etc/gh2lp
     fi
 
+    if [ -d /var/lib/gh2lp ]; then
+      chown -R gh2lp.gh2lp /var/lib/gh2lp
+    fi
+
     if [ -f /etc/init/gh2lp.conf ]; then
       chmod 600 /etc/init/gh2lp.conf
     fi
