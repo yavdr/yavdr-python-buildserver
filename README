@@ -6,7 +6,8 @@ mkdir ${GNUPGHOME}
 chmod 700 ${GNUPGHOME}
 gpg --keyserver keyserver.ubuntu.com --recv-keys 138A2351
 gpg --import yavdr-release-private.asc
-chown gh2lp.gh2lp ${GNUPGHOME}
+chown -R gh2lp.gh2lp ${GNUPGHOME}
+exit
 
 Configure
 ---------
