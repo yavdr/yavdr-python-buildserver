@@ -85,6 +85,9 @@ class Config:
         self.server_port = int(self.get_setting("Server", "port", "8180"))
         self.smtp_server = self.get_setting("Server", "smtp_server", None)
         self.smtp_sender = self.get_setting("Server", "smtp_sender", None)
+        self.smtp_tls = self.get_settingb("Server", "smtp_tls", False)
+        self.smtp_user = self.get_setting("Server", "smtp_user", None)
+        self.smtp_password = self.get_setting("Server", "smtp_password", None)
         if not self.smtp_sender:
             self.smtp_server = None
         
@@ -290,6 +293,10 @@ class Build(threading.Thread):
                 msg['From'] = self.config.smtp_sender
                 msg['To'] = self.pusher_email
                 s = smtplib.SMTP(self.config.smtp_server)
+                if self.config.smtp_tls:
+                    s.starttls()
+                if self.config.smtp_user and self.config.smtp_password:
+                    s.login(self.config.smtp_user, self.config.smtp_password)
                 s.send_message(msg)
                 s.quit()
 
