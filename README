@@ -1,0 +1,21 @@
+Install signing key
+-------------------
+sudo su -
+export GNUPGHOME=/var/lib/gh2lp/.gnupg
+mkdir ${GNUPGHOME}
+chmod 700 ${GNUPGHOME}
+gpg --keyserver keyserver.ubuntu.com --recv-keys 138A2351
+gpg --import yavdr-release-private.asc
+chown gh2lp.gh2lp ${GNUPGHOME}
+
+Install Webhook
+---------------
+visit repository: https://github.com/yavdr/yavdr-base
+select "Settings" on the right side
+select "Webhooks & Services" on the left side
+add new Webhook (or edit old hook)
+Payload URL: http://your.server:8180/
+Content type: application/json
+Secret: enter the same secret as in the upstart job in HOOK_SECRET_KEY
+select "just the push event"
+select "Update webhook"

@@ -1,3 +1,11 @@
+gh2lp (0.1.1-0yavdr0~trusty) trusty; urgency=medium
+
+  * add README with installation instructions
+  * setuid in Upstart job
+  * example for HOOK_SECRET_KEY
+
+ -- Lars Hanisch <dvb@flensrocker.de>  Wed, 29 Oct 2014 22:48:54 +0100
+
 gh2lp (0.1.0-1yavdr0~trusty) trusty; urgency=medium
 
   * change home dir to /var/lib/gh2lp

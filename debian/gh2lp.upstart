@@ -7,8 +7,14 @@ start on ((filesystem and static-network-up) \
 
 stop on runlevel [!2345]
 
+setuid gh2lp
+setgid gh2lp
+
 env HOME=/var/lib/gh2lp
 export HOME
+
+env HOOK_SECRET_KEY=secret
+export HOOK_SECRET_KEY
 
 exec /usr/bin/gh2lp --conf /etc/gh2lp/yavdr.conf
 
