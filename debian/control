@@ -1,0 +1,15 @@
+Source: gh2lp
+Section: vcs
+Priority: optional
+Maintainer: Lars Hanisch <dvb@flensrocker.de>
+Build-Depends: debhelper (>= 8)
+Standards-Version: 3.9.1
+Homepage: https://github.com/flensrocker/yavdr-python-buildserver
+
+Package: gh2lp
+Architecture: all
+Depends: ${misc:Depends}, python3
+Description: A service that converts GitHub pushs into Launchpad builds
+ Triggered by a GitHub Webhook this daemon can package the latest commit
+ and upload it to Launchpad
+

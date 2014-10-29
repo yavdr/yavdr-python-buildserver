@@ -1,0 +1,11 @@
+
+description "GitHub to Launchpad Build Daemon"
+author      "Lars Hanisch <dvb@flensrocker.de>"
+
+start on ((filesystem and static-network-up) \
+      or resume)
+
+stop on runlevel [!2345]
+
+exec /usr/bin/gh2lp --conf /etc/gh2lp/yavdr.conf
+
