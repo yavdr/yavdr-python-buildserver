@@ -1,3 +1,10 @@
+gh2lp (0.1.0-1yavdr0~trusty) trusty; urgency=medium
+
+  * change home dir to /var/lib/gh2lp
+  * export HOME in Upstart job
+
+ -- Lars Hanisch <dvb@flensrocker.de>  Wed, 29 Oct 2014 22:11:45 +0100
+
 gh2lp (0.1.0-0yavdr0~trusty) trusty; urgency=medium
 
   * initial upstream release
