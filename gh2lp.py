@@ -219,7 +219,7 @@ class Build(threading.Thread):
             print("version_suffix:", version_suffix)
 
             print("checkout sourcecode")
-            subprocess.check_call(["git", "clone", "-b", self.branch, self.git_url,
+            subprocess.check_call(["git", "clone", "--depth", "1", "-b", self.branch, self.git_url,
                                    package_name_version],
                                    stdout=logfile, stderr=errorfile)
             os.chdir(os.path.join(tmpdir, package_name_version))
