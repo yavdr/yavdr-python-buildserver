@@ -6,7 +6,7 @@ set -e
 case "$1" in
   configure)
     adduser --disabled-password  --quiet --system \
-      --home /var/run/gh2lp --no-create-home \
+      --home /var/lib/gh2lp \
       --gecos "GitHub-to-Launchpad build daemon" --group gh2lp
 
     addgroup --quiet --system gh2lp || true
