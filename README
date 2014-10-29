@@ -8,6 +8,12 @@ gpg --keyserver keyserver.ubuntu.com --recv-keys 138A2351
 gpg --import yavdr-release-private.asc
 chown gh2lp.gh2lp ${GNUPGHOME}
 
+Configure
+---------
+edit /etc/gh2lp/yavdr.conf, adjust smtp-settings
+edit /etc/init/gh2lp.conf, adjust HOOK_SECRET_KEY
+"start gh2lp"
+
 Install Webhook
 ---------------
 visit repository: https://github.com/yavdr/yavdr-base

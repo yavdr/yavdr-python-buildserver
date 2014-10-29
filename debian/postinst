@@ -10,6 +10,15 @@ case "$1" in
       --gecos "GitHub-to-Launchpad build daemon" --group gh2lp
 
     addgroup --quiet --system gh2lp || true
+
+    if [ -d /etc/gh2lp ]; then
+      chown -R gh2lp.gh2lp /etc/gh2lp
+      chmod -R 600 /etc/gh2lp
+    fi
+
+    if [ -f /etc/init/gh2lp.conf ]; then
+      chmod 600 /etc/init/gh2lp.conf
+    fi
   ;;
   abort-upgrade|abort-remove|abort-deconfigure)
   ;;
