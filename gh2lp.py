@@ -325,7 +325,11 @@ class GithubHookHandler(BaseHTTPRequestHandler):
 
             # HMAC requires its key to be bytes, but data is strings.
             mac = hmac.new(config.HOOK_SECRET_KEY, msg=data, digestmod=hashlib.sha1)
-            return hmac.compare_digest(mac.hexdigest(), signature)
+            try:
+                return hmac.compare_digest(mac.hexdigest(), signature)
+            except:
+                pass
+            return mac.hexdigest() == signature
         else:
             return True
 
@@ -340,7 +344,10 @@ class GithubHookHandler(BaseHTTPRequestHandler):
         # first send response
         self.send_response(200)
         self.end_headers()
-        self.flush_headers()
+        try:
+            self.flush_headers()
+        except AttributeError:
+            pass
         # then handle request, so that no timeout occurs (hopefully)
         payload = json.loads(post_data.decode('utf-8'))
         self.handle_payload(payload)
