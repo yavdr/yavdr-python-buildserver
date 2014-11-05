@@ -21,6 +21,7 @@ import sys
 import tempfile
 import threading
 
+version = "0.1.3"
 config = None
 server = None
 
@@ -384,6 +385,6 @@ def main():
 
 
 if __name__ == '__main__':
-    print("GitHub-to-Launchpad-BuildServer started with PID ", os.getpid())
+    print("GitHub-to-Launchpad-BuildServer version {0} started with PID {1}".format(version, os.getpid()))
     signal.signal(signal.SIGTERM, sighandler)
     main()
