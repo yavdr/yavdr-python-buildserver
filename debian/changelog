@@ -1,3 +1,10 @@
+gh2lp (0.1.3-0yavdr0~trusty) trusty; urgency=medium
+
+  * workarounds for python 3.2
+  * print version in startup message
+
+ -- Lars Hanisch <dvb@flensrocker.de>  Wed, 05 Nov 2014 21:37:07 +0100
+
 gh2lp (0.1.2-1yavdr0~trusty) trusty; urgency=medium
 
   * add needed dependencies (devscripts, git, tar, dput)
