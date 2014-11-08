@@ -251,6 +251,7 @@ class Build(threading.Thread):
                  self.git_url,
                  "--create",
                  "--distribution={}".format(self.release),
+                 "--force-distribution",
                  "-u", self.urgency,
                  "--package", self.name
                  ],
