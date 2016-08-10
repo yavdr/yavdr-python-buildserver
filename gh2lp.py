@@ -21,7 +21,7 @@ import sys
 import tempfile
 import threading
 
-version = "0.1.3"
+version = "0.1.5"
 config = None
 server = None
 
@@ -49,7 +49,8 @@ class Config:
         self.args = vars(argparser.parse_args())
         self.configparser = configparser.SafeConfigParser()
         if "config" in self.args:
-            self.configparser.read(self.args["config"])
+            read_files = self.configparser.read(self.args["config"])
+            print("read config from: {FILES}".format(FILES=read_files))
         self.get_config()
         # set up environment variables
         try:
@@ -106,8 +107,8 @@ class Config:
         self.default_section = self.get_setting("Build", "default_section", "main")
 
         self.stages = self.get_section("Stages", {'master': 'unstable', 'testing-': 'testing', 'stable-': 'stable'})
-        self.releases = self.get_section("Releases", {'-0.5': 'precise', '-0.6': 'trusty'})
-        self.sections = self.get_section("Sections", {'vdr-': 'vdr', 'vdr-addon-': 'main', 'yavdr-': 'yavdr'})
+        self.releases = self.get_section("Releases", {'-0.5': 'precise', '-0.6': 'trusty', '-0.7': 'xenial'})
+        self.sections = self.get_section("Sections", {'vdr-': 'vdr', 'vdr-addon-avahi': 'vdr', 'vdr-addon-': 'main', 'yavdr-': 'yavdr'})
 
 
 class Build(threading.Thread):
@@ -178,9 +179,9 @@ class Build(threading.Thread):
             logfile = open('build.log', 'w+b')
 
             if self.owner != self.config.github_owner:
-                raise Exception("wrong owner")
+                raise Exception("wrong owner: {OWNER} != {GHOWNER}".format(OWNER=self.owner, GHOWNER=self.config.github_owner))
             if not self.git_url.startswith(self.config.github_baseurl):
-                raise Exception("wrong repository")
+                raise Exception("wrong repository: {GITURL} starts not with {BASEURL}".format(GITURL=self.git_url, BASEURL=self.config.github_baseurl))
 
             self.stage = self.config.default_stage
             matches = [sta for sta in self.config.stages.keys() if self.branch.startswith(sta)]
