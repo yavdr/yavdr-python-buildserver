@@ -1,3 +1,11 @@
+gh2lp (0.1.5-0yavdr0~trusty) trusty; urgency=medium
+
+  * print the read config files
+  * add some information on errors
+  * make /etc/gh2lp executable, otherwise gh2lp can't read the config file
+
+ -- Lars Hanisch <dvb@flensrocker.de>  Wed, 10 Aug 2016 21:26:57 +0200
+
 gh2lp (0.1.4-1yavdr0~trusty) trusty; urgency=medium
 
   * add #DEBHELPER# to postinst

@@ -13,7 +13,8 @@ case "$1" in
 
     if [ -d /etc/gh2lp ]; then
       chown -R gh2lp.gh2lp /etc/gh2lp
-      chmod -R 600 /etc/gh2lp
+      chmod 700 /etc/gh2lp
+      chmod -R 600 /etc/gh2lp/*
     fi
 
     if [ -d /var/lib/gh2lp ]; then
