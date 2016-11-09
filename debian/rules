@@ -5,5 +5,5 @@ export PREFIX=/usr
 override_dh_usrlocal:
 
 %:
-	dh $@
+	dh $@ --with=systemd
 
