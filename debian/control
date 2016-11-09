@@ -8,7 +8,7 @@ Homepage: https://github.com/flensrocker/yavdr-python-buildserver
 
 Package: gh2lp
 Architecture: all
-Depends: ${misc:Depends}, python3, devscripts, git, tar, dput
+Depends: ${misc:Depends}, python3, devscripts, git, tar, dput, dh-systemd
 Description: A service that converts GitHub pushs into Launchpad builds
  Triggered by a GitHub Webhook this daemon can package the latest commit
  and upload it to Launchpad
