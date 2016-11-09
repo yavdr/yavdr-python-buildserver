@@ -2,7 +2,7 @@
 Description=GitHub to Launchpad Build Daemon
 After=network.target
 
-[Unit]
+[Service]
 User=gh2lp
 Group=gh2lp
 Environment=HOME=/var/lib/gh2lp
