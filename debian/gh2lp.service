@@ -2,12 +2,16 @@
 Description=GitHub to Launchpad Build Daemon
 After=network.target
 
-[Unit]
+[Service]
 User=gh2lp
 Group=gh2lp
 Environment=HOME=/var/lib/gh2lp
 Environment=HOOK_SECRET_KEY=secret
-ExecStart=/usr/bin/gh2lp --conf /etc/gh2lp/yavdr.conf
+EnvironmentFile=-/etc/gh2lp.env
+WorkingDirectory=~
+ExecStart=/usr/bin/python3 -u /usr/bin/gh2lp --conf /etc/gh2lp/yavdr.conf
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
