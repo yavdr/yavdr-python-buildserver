@@ -89,15 +89,20 @@ class Config:
         self.smtp_sender = self.get_setting("Server", "smtp_sender", None)
         self.smtp_tls = self.get_settingb("Server", "smtp_tls", False)
         self.smtp_user = self.get_setting("Server", "smtp_user", None)
+        self.smtp_port = self.get_setting("Server", "smtp_port", None)
+        try:
+            self.config.smtp_port = int(self.config.smtp_port)
+        except:
+            pass
         self.smtp_password = self.get_setting("Server", "smtp_password", None)
         if not self.smtp_sender:
             self.smtp_server = None
-        
+
         self.launchpad_owner = self.get_setting("Launchpad", "owner", "yavdr")
-        
+
         self.github_owner = self.get_setting("Github", "owner", "yavdr")
         self.github_baseurl = self.get_setting("Github", "baseurl", "git://github.com/yavdr/")
-        
+
         self.debfullname = self.get_setting("Build", "fullname", "yaVDR Release-Team")
         self.debemail = self.get_setting("Build", "email", "release@yavdr.org")
         self.gpgkey = self.get_setting("Build", "gpgkey", None)
@@ -151,6 +156,7 @@ class Build(threading.Thread):
         self.git_url = json_payload["repository"]["git_url"]
 
         branch = json_payload["ref"]
+        print("branch for build:", branch)
         if not branch.startswith("refs/heads/"):
             raise Exception("unknown branch")
         self.branch = branch[11:]
@@ -295,13 +301,14 @@ class Build(threading.Thread):
                     msg['Subject'] = "an unexpected error occured while building"
                 msg['From'] = self.config.smtp_sender
                 msg['To'] = self.pusher_email
-                s = smtplib.SMTP(self.config.smtp_server)
-                if self.config.smtp_tls:
-                    s.starttls()
-                if self.config.smtp_user and self.config.smtp_password:
-                    s.login(self.config.smtp_user, self.config.smtp_password)
-                s.send_message(msg)
-                s.quit()
+                with smtplib.SMTP(self.config.smtp_server, port=self.config.smtp_port) as s:
+                    s.ehlo()
+                    if self.config.smtp_tls:
+                        s.starttls()
+                    if self.config.smtp_user and self.config.smtp_password:
+                        s.login(self.config.smtp_user, self.config.smtp_password)
+                    s.send_message(msg)
+                    s.quit()
 
             # cleanup
             if self.config.dryrun:
@@ -321,28 +328,37 @@ class GithubHookHandler(BaseHTTPRequestHandler):
     Subclass it and implement 'handle_payload'.
     """
     def _validate_signature(self, data):
-        if config.HOOK_SECRET_KEY:
-            sha_name, signature = self.headers['X-Hub-Signature'].split('=')
-            if sha_name != 'sha1':
-                return False
+        if config.HOOK_SECRET_KEY and config.HOOK_SECRET_KEY != 'secret':
+            if 'X-Hub-Signature' in self.headers:
+                sha_name, signature = self.headers['X-Hub-Signature'].split('=')
+                if sha_name != 'sha1':
+                    return False
 
-            # HMAC requires its key to be bytes, but data is strings.
-            mac = hmac.new(config.HOOK_SECRET_KEY, msg=data, digestmod=hashlib.sha1)
-            try:
-                return hmac.compare_digest(mac.hexdigest(), signature)
-            except:
-                pass
-            return mac.hexdigest() == signature
+                # HMAC requires its key to be bytes, but data is strings.
+                mac = hmac.new(config.HOOK_SECRET_KEY, msg=data, digestmod=hashlib.sha1)
+                try:
+                    return hmac.compare_digest(mac.hexdigest(), signature)
+                except:
+                    pass
+                return mac.hexdigest() == signature
         else:
             return True
 
     def do_POST(self):
-        data_length = int(self.headers['Content-Length'])
+        print("POST-Request: HEADER")
+        for k, v in self.headers.items():
+            print(k, ':', v)
+        data_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(data_length)
+        print("body length:", data_length)
+        print("body:", post_data)
 
         if not self._validate_signature(post_data):
             self.send_response(401)
+            self.end_headers()
+            print("invalid signature, doing nothing")
             return
+        print("validated signature")
 
         # first send response
         self.send_response(200)
@@ -351,9 +367,11 @@ class GithubHookHandler(BaseHTTPRequestHandler):
             self.flush_headers()
         except AttributeError:
             pass
+        print("sent response 200")
         # then handle request, so that no timeout occurs (hopefully)
-        payload = json.loads(post_data.decode('utf-8'))
-        self.handle_payload(payload)
+        if post_data:
+            payload = json.loads(post_data.decode('utf-8'))
+            self.handle_payload(payload)
 
 
 class MyHandler(GithubHookHandler):
@@ -362,8 +380,9 @@ class MyHandler(GithubHookHandler):
             build = Build(config)
             build.fromgithub(json_payload)
             build.start() # runs build.build() in separate thread
-        except:
-            pass
+            print("started thread to build package")
+        except Exception as e:
+            print("Exception when calling MyHandler.handle_payload()", e)
         return
 
 
@@ -382,8 +401,11 @@ def main():
         build.fromargs(config.args)
         build.build()
     else:
-        server = ThreadedHTTPServer(('', config.server_port), MyHandler)
-        server.serve_forever()
+        try:
+            server = ThreadedHTTPServer(('', config.server_port), MyHandler)
+            server.serve_forever()
+        except KeyboardInterrupt:
+            server.shutdown()
 
 
 if __name__ == '__main__':
